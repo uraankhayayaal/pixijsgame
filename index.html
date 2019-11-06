@@ -1,0 +1,259 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Socket.IO chat</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body { font: 13px Helvetica, Arial; }
+      form { background: #000; padding: 3px; position: fixed; bottom: 0; width: 100%; }
+      form input { border: 0; padding: 10px; width: 90%; margin-right: .5%; }
+      form button { width: 9%; background: rgb(130, 224, 255); border: none; padding: 10px; }
+      #messages { list-style-type: none; margin: 0; padding: 0; }
+      #messages li { padding: 5px 10px; }
+      #messages li:nth-child(odd) { background: #eee; }
+    </style>
+  </head>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/pixi.min.js"></script>
+    <body>
+        <script type="text/javascript">
+            var socket = io();
+            let app;
+            function keyboard(value) {
+                let key = {};
+                key.value = value;
+                key.isDown = false;
+                key.isUp = true;
+                key.press = undefined;
+                key.release = undefined;
+                //The `downHandler`
+                key.downHandler = event => {
+                    if (event.key === key.value) {
+                    if (key.isUp && key.press) key.press();
+                    key.isDown = true;
+                    key.isUp = false;
+                    event.preventDefault();
+                    }
+                };
+
+                //The `upHandler`
+                key.upHandler = event => {
+                    if (event.key === key.value) {
+                    if (key.isDown && key.release) key.release();
+                    key.isDown = false;
+                    key.isUp = true;
+                    event.preventDefault();
+                    }
+                };
+
+                //Attach event listeners
+                const downListener = key.downHandler.bind(key);
+                const upListener = key.upHandler.bind(key);
+                
+                window.addEventListener(
+                    "keydown", downListener, false
+                );
+                window.addEventListener(
+                    "keyup", upListener, false
+                );
+                
+                // Detach event listeners
+                key.unsubscribe = () => {
+                    window.removeEventListener("keydown", downListener);
+                    window.removeEventListener("keyup", upListener);
+                };
+                
+                return key;
+            }
+
+
+
+            let type = "WebGL"
+            if(!PIXI.utils.isWebGLSupported()){
+                type = "canvas"
+            }
+            PIXI.utils.sayHello(type);
+        
+            //Create a Pixi Application
+            app = new PIXI.Application({
+                width: 700,
+                height: 500,
+                antialias: true,    // default: false
+                transparent: false, // default: false
+                resolution: 1       // default: 1
+            });
+
+            app.renderer.backgroundColor = 0x061639;
+
+            //Add the canvas that Pixi automatically created for you to the HTML document
+            document.body.appendChild(app.view);
+
+            //load an image and run the `setup` function when it's done
+            PIXI.loader
+                .add("/cat.png")
+                .load(setup);
+
+            //Define any variables that are used in more than one function
+            let cat;
+            let MyUid = window.navigator.userAgent.replace(/\D+/g, '') + Date.now();
+            let state;
+
+            //This `setup` function will run when the image has loaded
+            function setup() {
+                //Create the cat sprite
+                cat = new PIXI.Sprite(PIXI.loader.resources["/cat.png"].texture);
+                cat.name = MyUid;
+                //Change the sprite's position
+                cat.y = 96; 
+                cat.vx = 0;
+                cat.vy = 0;
+  
+                //Add the cat to the stage
+                app.stage.addChild(cat);
+                initNewCat(cat);
+
+
+                //Capture the keyboard arrow keys
+                let left = keyboard("ArrowLeft"),
+                    up = keyboard("ArrowUp"),
+                    right = keyboard("ArrowRight"),
+                    down = keyboard("ArrowDown");
+
+                //Left arrow key `press` method
+                left.press = () => {
+                    //Change the cat's velocity when the key is pressed
+                    move('left');
+                };
+                
+                //Left arrow key `release` method
+                left.release = () => {
+                    //If the left arrow has been released, and the right arrow isn't down,
+                    //and the cat isn't moving vertically:
+                    //Stop the cat
+                    if (!right.isDown && cat.vy === 0) {
+                        move('stop');
+                    }
+                };
+
+                //Up
+                up.press = () => {
+                    move('up');
+                };
+                up.release = () => {
+                    if (!down.isDown && cat.vx === 0) {
+                        move('stop');
+                    }
+                };
+
+                //Right
+                right.press = () => {
+                    move('right');
+                };
+                right.release = () => {
+                    if (!left.isDown && cat.vy === 0) {
+                        move('stop');
+                    }
+                };
+
+                //Down
+                down.press = () => {
+                    move('down');
+                };
+                down.release = () => {
+                    if (!up.isDown && cat.vx === 0) {
+                        move('stop');
+                    }
+                };
+
+                //Set the game state
+                state = play;
+                //Start the game loop 
+                app.ticker.add(delta => gameLoop(delta));
+            }
+
+            function addNewCat(item) {
+                //Create the cat sprite
+                var newCat = new PIXI.Sprite(PIXI.loader.resources["/cat.png"].texture);
+                newCat.name = item.name;
+                //Change the sprite's position
+                newCat.y = item.y; 
+                newCat.x = item.x; 
+                newCat.vx = 0;
+                newCat.vy = 0;
+                //Add the cat to the stage
+                app.stage.addChild(newCat);
+            }
+
+            function gameLoop(delta){
+
+                //Update the current game state:
+                state(delta);
+            }
+
+            function play(delta) {
+
+                //Use the cat's velocity to make it move
+                cat.x += cat.vx;
+                cat.y += cat.vy;
+            }
+
+            function initNewCat(item){
+                var newCatt = {
+                    name: item.name,
+                    x: item.x,
+                    y: item.y,
+                }
+                socket.emit('create', newCatt);
+            }
+
+            function move(where){
+                socket.emit('move', {id: MyUid, pos: where});
+            }
+
+            socket.on('move', function(msg){
+                
+                movement = app.stage.getChildByName(msg.id);
+                if(movement == null){
+                    addNewCat({name: msg.id, x: msg.x, y: msg.y});
+                }
+                movement = app.stage.getChildByName(msg.id);
+                console.log(movement.name);
+                switch (msg.pos) {
+                    case 'left':
+                        movement.x = movement.x - 5;
+                        movement.y = movement.y + 0;
+                        break;
+                    case 'up':
+                        movement.y = movement.y - 5;
+                        movement.x = movement.x + 0;
+                        break;
+                    case 'right':
+                        movement.x = movement.x + 5;
+                        movement.y = movement.y + 0;
+                        break;
+                    case 'down':
+                        movement.y = movement.y + 5;
+                        movement.x = movement.x + 0;
+                        break;
+                    case 'stop':
+                        movement.y = movement.y + 0;
+                        movement.x = movement.x + 0;
+                        break;
+                    case 'init':
+                        movement.y = movement.y + 0;
+                        movement.x = movement.x + 0;
+                        movement.y = msg.y;
+                        movement.x = msg.x;
+                        break;
+                
+                    default:
+                        break;
+                }
+            });
+            socket.on('create', function(item){
+                if(item.id != cat.name)
+                    addNewCat(item);
+            });
+        </script>
+    </body>
+</html>
